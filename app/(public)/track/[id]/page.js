@@ -1,0 +1,932 @@
+"use client";
+
+import { useState, useEffect, useCallback, use } from "react";
+import Link from "next/link";
+import dynamic from "next/dynamic";
+import Navbar from "@/components/nav/Navbar";
+import {
+  Package,
+  MapPin,
+  Clock,
+  CheckCircle2,
+  AlertTriangle,
+  Plane,
+  Truck,
+  Warehouse,
+  ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  Shield,
+  User,
+  Calendar,
+  Weight,
+  Box,
+  Flag,
+  Copy,
+  ExternalLink,
+  RefreshCw,
+} from "lucide-react";
+
+import {
+  getShipment,
+  getShipmentByTrackingNumber,
+  getShipmentEvents,
+} from "@/services/shipment.service";
+
+const LeafletMap = dynamic(() => import("@/components/tracking/LeafletMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-56 bg-gradient-to-br from-[#EBF4FF] to-[#F0F7FF] flex items-center justify-center">
+      <div className="flex items-center gap-2 text-[#64748B] text-sm">
+        <div className="w-4 h-4 border-2 border-[#FFB800] border-t-transparent rounded-full animate-spin" />
+        Loading map…
+      </div>
+    </div>
+  ),
+});
+
+// ─── Coordinates lookup ───────────────────────────────────────────────────────
+// NOTE: every key is quoted and appears only once (the original had unquoted
+// multi-word keys, which is a syntax error, plus duplicate keys).
+const CITY_COORDS = {
+  lagos: [6.5244, 3.3792],
+  ikeja: [6.6018, 3.3515],
+  london: [51.5074, -0.1278],
+  manchester: [53.4808, -2.2426],
+  birmingham: [52.4862, -1.8904],
+  paris: [48.8566, 2.3522],
+  lyon: [45.764, 4.8357],
+  marseille: [43.2965, 5.3698],
+  berlin: [52.52, 13.405],
+  munich: [48.1351, 11.582],
+  hamburg: [53.5511, 9.9937],
+  frankfurt: [50.1109, 8.6821],
+  amsterdam: [52.3676, 4.9041],
+  rotterdam: [51.9244, 4.4777],
+  brussels: [50.8503, 4.3517],
+  antwerp: [51.2194, 4.4025],
+  madrid: [40.4168, -3.7038],
+  barcelona: [41.3851, 2.1734],
+  valencia: [39.4699, -0.3763],
+  seville: [37.3891, -5.9845],
+  lisbon: [38.7223, -9.1393],
+  porto: [41.1579, -8.6291],
+  rome: [41.9028, 12.4964],
+  milan: [45.4642, 9.19],
+  venice: [45.4408, 12.3155],
+  florence: [43.7696, 11.2558],
+  athens: [37.9838, 23.7275],
+  thessaloniki: [40.6401, 22.9444],
+  vienna: [48.2082, 16.3738],
+  zurich: [47.3769, 8.5417],
+  geneva: [46.2044, 6.1432],
+  copenhagen: [55.6761, 12.5683],
+  stockholm: [59.3293, 18.0686],
+  oslo: [59.9139, 10.7522],
+  helsinki: [60.1699, 24.9384],
+  dublin: [53.3498, -6.2603],
+  edinburgh: [55.9533, -3.1883],
+  warsaw: [52.2297, 21.0122],
+  prague: [50.0755, 14.4378],
+  budapest: [47.4979, 19.0402],
+  bucharest: [44.4268, 26.1025],
+  sofia: [42.6977, 23.3219],
+  belgrade: [44.7866, 20.4489],
+  "new york": [40.7128, -74.006],
+  "new york city": [40.7128, -74.006],
+  nyc: [40.7128, -74.006],
+  "los angeles": [34.0522, -118.2437],
+  chicago: [41.8781, -87.6298],
+  houston: [29.7604, -95.3698],
+  miami: [25.7617, -80.1918],
+  atlanta: [33.749, -84.388],
+  boston: [42.3601, -71.0589],
+  seattle: [47.6062, -122.3321],
+  sf: [37.7749, -122.4194],
+  "san francisco": [37.7749, -122.4194],
+  phoenix: [33.4484, -112.074],
+  dallas: [32.7767, -96.797],
+  austin: [30.2672, -97.7431],
+  denver: [39.7392, -104.9903],
+  toronto: [43.6532, -79.3832],
+  vancouver: [49.2827, -123.1207],
+  montreal: [45.5017, -73.5673],
+  calgary: [51.0447, -114.0719],
+  "mexico city": [19.4326, -99.1332],
+  guadalajara: [20.6597, -103.3496],
+  monterrey: [25.6866, -100.3161],
+  bogota: [4.711, -74.0721],
+  medellin: [6.2476, -75.5658],
+  lima: [-12.0464, -77.0428],
+  santiago: [-33.4489, -70.6693],
+  "buenos aires": [-34.6037, -58.3816],
+  "sao paulo": [-23.5505, -46.6333],
+  rio: [-22.9068, -43.1729],
+  "rio de janeiro": [-22.9068, -43.1729],
+  curitiba: [-25.4284, -49.2733],
+  "panama city": [8.9824, -79.5199],
+  "san jose": [9.9281, -84.0907],
+  "guatemala city": [14.6349, -90.5069],
+  "san salvador": [13.6929, -89.2182],
+  tegucigalpa: [14.0723, -87.1921],
+  managua: [12.1149, -86.2364],
+  "san jose del cabo": [23.073, -109.7174],
+  dubai: [25.2048, 55.2708],
+  singapore: [1.3521, 103.8198],
+  shanghai: [31.2304, 121.4737],
+  "hong kong": [22.3193, 114.1694],
+  tokyo: [35.6762, 139.6503],
+  sydney: [-33.8688, 151.2093],
+  mumbai: [19.076, 72.8777],
+  delhi: [28.7041, 77.1025],
+  beijing: [39.9042, 116.4074],
+  seoul: [37.5665, 126.978],
+  jakarta: [-6.2088, 106.8456],
+};
+
+const COUNTRY_COORDS = {
+  nigeria: [9.082, 8.6753],
+  "united states of america": [39.8283, -98.5795],
+  "united states": [39.8283, -98.5795],
+  usa: [39.8283, -98.5795],
+  us: [39.8283, -98.5795],
+  "united kingdom": [55.3781, -3.436],
+  uk: [55.3781, -3.436],
+  england: [52.3555, -1.1743],
+  scotland: [56.4907, -4.2026],
+  wales: [52.1307, -3.7837],
+  ireland: [53.1424, -7.6921],
+  germany: [51.1657, 10.4515],
+  france: [46.2276, 2.2137],
+  spain: [40.4637, -3.7492],
+  portugal: [39.3999, -8.2245],
+  italy: [41.8719, 12.5674],
+  netherlands: [52.1326, 5.2913],
+  belgium: [50.5039, 4.4699],
+  switzerland: [46.8182, 8.2275],
+  austria: [47.5162, 14.5501],
+  sweden: [60.1282, 18.6435],
+  norway: [60.472, 8.4689],
+  denmark: [56.2639, 9.5018],
+  finland: [61.9241, 25.7482],
+  poland: [51.9194, 19.1451],
+  czechia: [49.8175, 15.473],
+  "czech republic": [49.8175, 15.473],
+  greece: [39.0742, 21.8243],
+  romania: [45.9432, 24.9668],
+  hungary: [47.1625, 19.5033],
+  bulgaria: [42.7339, 25.4858],
+  croatia: [45.1, 15.2],
+  serbia: [44.0165, 21.0059],
+  slovenia: [46.1512, 14.9955],
+  slovakia: [48.669, 19.699],
+  latvia: [56.8796, 24.6032],
+  lithuania: [55.1694, 23.8813],
+  estonia: [58.5953, 25.0136],
+  canada: [56.1304, -106.3468],
+  mexico: [23.6345, -102.5528],
+  brazil: [-14.235, -51.9253],
+  argentina: [-38.4161, -63.6167],
+  chile: [-35.6751, -71.543],
+  colombia: [4.5709, -74.2973],
+  peru: [-9.19, -75.0152],
+  ecuador: [-1.8312, -78.1834],
+  uruguay: [-32.5228, -55.7658],
+  paraguay: [-23.4425, -58.4438],
+  bolivia: [-16.2902, -63.5887],
+  venezuela: [6.4238, -66.5897],
+  panama: [8.538, -80.7821],
+  "costa rica": [9.7489, -83.7534],
+  guatemala: [15.7835, -90.2308],
+  "el salvador": [13.7942, -88.8965],
+  honduras: [15.2, -86.2419],
+  nicaragua: [12.8654, -85.2072],
+  "dominican republic": [18.7357, -70.1627],
+  "puerto rico": [18.2208, -66.5901],
+  china: [35.8617, 104.1954],
+  india: [20.5937, 78.9629],
+  australia: [-25.2744, 133.7751],
+};
+
+// Longest keys first so "new york city" wins over "new york", and
+// "san jose del cabo" wins over "san jose". Matching is on whole words, so
+// "us" no longer matches inside "australia" and "la" can't match "atlanta".
+function buildMatchers(table) {
+  return Object.entries(table)
+    .sort((a, b) => b[0].length - a[0].length)
+    .map(([key, coords]) => ({
+      coords,
+      re: new RegExp(`(^|[^a-z])${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z]|$)`),
+    }));
+}
+
+const CITY_MATCHERS = buildMatchers(CITY_COORDS);
+const COUNTRY_MATCHERS = buildMatchers(COUNTRY_COORDS);
+
+function toNum(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function validLatLng(lat, lng) {
+  return lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+}
+
+// Only treat the string as coordinates when it is *just* "lat, lng"
+// (previously any two adjacent numbers, e.g. "12 100001", were parsed).
+function parseLatLng(locationString) {
+  if (!locationString || typeof locationString !== "string") return null;
+  const match = locationString
+    .trim()
+    .match(/^\(?\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*\)?$/);
+  if (!match) return null;
+  const lat = parseFloat(match[1]);
+  const lng = parseFloat(match[2]);
+  return validLatLng(lat, lng) ? [lat, lng] : null;
+}
+
+function getCityCoords(locationString) {
+  if (!locationString) return null;
+  const normalized = locationString.toString().trim().toLowerCase();
+  const explicit = parseLatLng(normalized);
+  if (explicit) return explicit;
+
+  for (const m of CITY_MATCHERS) if (m.re.test(normalized)) return m.coords;
+  for (const m of COUNTRY_MATCHERS) if (m.re.test(normalized)) return m.coords;
+  return null;
+}
+
+function resolveCoords(location) {
+  if (!location) return null;
+
+  if (Array.isArray(location) && location.length === 2) {
+    const lat = toNum(location[0]);
+    const lng = toNum(location[1]);
+    if (validLatLng(lat, lng)) return [lat, lng];
+    return null;
+  }
+
+  if (typeof location === "object") {
+    const lat = toNum(location.latitude ?? location.lat);
+    const lng = toNum(location.longitude ?? location.lng ?? location.long ?? location.lon);
+    if (validLatLng(lat, lng)) return [lat, lng];
+
+    const parts = [location.city, location.state, location.region, location.country]
+      .filter(Boolean)
+      .join(", ");
+    return getCityCoords(parts);
+  }
+
+  if (typeof location === "string") return getCityCoords(location);
+  return null;
+}
+
+// Safe text for anything that might be a string OR an address/coords object.
+function locationToText(location) {
+  if (!location) return "";
+  if (typeof location === "string") return location;
+  if (Array.isArray(location)) return location.join(", ");
+  if (typeof location === "object") {
+    return [location.city, location.state, location.region, location.country]
+      .filter(Boolean)
+      .join(", ");
+  }
+  return String(location);
+}
+
+// ─── Status config ────────────────────────────────────────────────────────────
+const STEPS = [
+  { key: "PICKED_UP",           label: "Picked Up",        icon: Package },
+  { key: "CUSTOMS_CLEARANCE",   label: "Customs",          icon: Shield },
+  { key: "IN_TRANSIT",          label: "In Transit",       icon: Plane },
+  { key: "ARRIVED_DESTINATION", label: "Arrived",          icon: Warehouse },
+  { key: "OUT_FOR_DELIVERY",    label: "Out for Delivery", icon: Truck },
+  { key: "DELIVERED",           label: "Delivered",        icon: CheckCircle2 },
+];
+
+// LABEL_CREATED -> -1 (nothing reached yet). CUSTOMS_HOLD sits on the customs step.
+// EXCEPTION is resolved separately from the last non-exception event.
+const STEP_INDEX = {
+  LABEL_CREATED: -1,
+  PICKED_UP: 0,
+  CUSTOMS_CLEARANCE: 1,
+  CUSTOMS_HOLD: 1,
+  IN_TRANSIT: 2,
+  ARRIVED_DESTINATION: 3,
+  OUT_FOR_DELIVERY: 4,
+  DELIVERED: 5,
+};
+
+const EVENT_ICON_BY_STATUS = {
+  LABEL_CREATED: Package,
+  PICKED_UP: Package,
+  CUSTOMS_CLEARANCE: Shield,
+  CUSTOMS_HOLD: Shield,
+  IN_TRANSIT: Plane,
+  ARRIVED_DESTINATION: Warehouse,
+  OUT_FOR_DELIVERY: Truck,
+  DELIVERED: CheckCircle2,
+  EXCEPTION: AlertTriangle,
+};
+
+const PROGRESS_PERCENT = {
+  LABEL_CREATED: 10,
+  PICKED_UP: 25,
+  CUSTOMS_CLEARANCE: 40,
+  CUSTOMS_HOLD: 40,
+  IN_TRANSIT: 60,
+  ARRIVED_DESTINATION: 80,
+  OUT_FOR_DELIVERY: 90,
+  DELIVERED: 100,
+  EXCEPTION: 50,
+};
+
+function getProgressPercent(status) {
+  return PROGRESS_PERCENT[status] ?? 50;
+}
+
+function toDate(timestamp) {
+  if (!timestamp) return null;
+  if (typeof timestamp.toDate === "function") return timestamp.toDate();
+  if (typeof timestamp === "object" && typeof timestamp.seconds === "number") {
+    return new Date(timestamp.seconds * 1000);
+  }
+  const d = new Date(timestamp);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatEventDate(timestamp) {
+  const d = toDate(timestamp);
+  if (!d) return "Unknown time";
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+const STATUS_CONFIG = {
+  LABEL_CREATED:       { bg: "bg-slate-50",  text: "text-slate-700",  dot: "bg-slate-400",  label: "Label Created" },
+  PICKED_UP:           { bg: "bg-slate-50",  text: "text-slate-700",  dot: "bg-slate-400",  label: "Picked Up" },
+  CUSTOMS_CLEARANCE:   { bg: "bg-amber-50",  text: "text-amber-700",  dot: "bg-amber-500",  label: "Customs Clearance" },
+  CUSTOMS_HOLD:        { bg: "bg-amber-50",  text: "text-amber-700",  dot: "bg-amber-500",  label: "Customs Hold" },
+  IN_TRANSIT:          { bg: "bg-blue-50",   text: "text-blue-700",   dot: "bg-blue-500",   label: "In Transit" },
+  ARRIVED_DESTINATION: { bg: "bg-blue-50",   text: "text-blue-700",   dot: "bg-blue-500",   label: "Arrived" },
+  OUT_FOR_DELIVERY:    { bg: "bg-purple-50", text: "text-purple-700", dot: "bg-purple-500", label: "Out for Delivery" },
+  DELIVERED:           { bg: "bg-green-50",  text: "text-green-700",  dot: "bg-green-500",  label: "Delivered" },
+  EXCEPTION:           { bg: "bg-red-50",    text: "text-red-700",    dot: "bg-red-500",    label: "Exception" },
+};
+
+function StatusBadge({ status, pulse = false }) {
+  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.PICKED_UP;
+  return (
+    <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ${cfg.bg} ${cfg.text}`}>
+      <span className={`w-2 h-2 rounded-full ${cfg.dot} ${pulse ? "animate-pulse" : ""}`} />
+      {cfg.label}
+    </span>
+  );
+}
+
+// ─── Progress Stepper ─────────────────────────────────────────────────────────
+function ProgressStepper({ currentIdx }) {
+  return (
+    <div className="w-full overflow-x-auto pb-2">
+      <div className="flex items-start min-w-[520px]">
+        {STEPS.map((step, i) => {
+          const Icon = step.icon;
+          const done = i < currentIdx;
+          const active = i === currentIdx;
+          const future = i > currentIdx;
+          return (
+            <div key={step.key} className="flex-1 flex flex-col items-center gap-2 relative">
+              {i > 0 && (
+                <div
+                  className={`absolute left-0 right-1/2 top-[19px] h-0.5 ${
+                    done || active ? "bg-[#FFB800]" : "bg-[#E2E8F0]"
+                  }`}
+                />
+              )}
+              {i < STEPS.length - 1 && (
+                <div
+                  className={`absolute left-1/2 right-0 top-[19px] h-0.5 ${
+                    done ? "bg-[#FFB800]" : "bg-[#E2E8F0]"
+                  }`}
+                />
+              )}
+
+              <div
+                className={`relative z-10 w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all ${
+                  done ? "bg-[#FFB800] border-[#FFB800]" : ""
+                } ${active ? "bg-[#0F172A] border-[#0F172A] ring-4 ring-[#FFB800]/20" : ""} ${
+                  future ? "bg-white border-[#E2E8F0]" : ""
+                }`}
+              >
+                <Icon
+                  size={16}
+                  className={`${done ? "text-[#0F172A]" : ""} ${active ? "text-white" : ""} ${
+                    future ? "text-[#CBD5E1]" : ""
+                  }`}
+                />
+              </div>
+
+              <span
+                className={`text-[11px] font-semibold text-center leading-tight ${
+                  active ? "text-[#0F172A]" : done ? "text-[#64748B]" : "text-[#CBD5E1]"
+                }`}
+              >
+                {step.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Timeline Item ────────────────────────────────────────────────────────────
+function TimelineItem({ event, isFirst, isLast }) {
+  const Icon = event.icon;
+  return (
+    <div className="flex gap-4">
+      <div className="flex flex-col items-center flex-shrink-0">
+        <div
+          className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
+            isFirst
+              ? "bg-[#0F172A] text-white ring-4 ring-[#FFB800]/20"
+              : "bg-[#F8FAFC] border border-[#E2E8F0] text-[#64748B]"
+          }`}
+        >
+          <Icon size={15} />
+        </div>
+        {!isLast && <div className="w-px flex-1 bg-[#E2E8F0] mt-2" />}
+      </div>
+
+      <div className="pb-6 flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <p className={`text-sm font-semibold ${isFirst ? "text-[#0F172A]" : "text-[#334155]"}`}>
+              {event.label}
+            </p>
+            <p className="text-xs text-[#64748B] mt-0.5 flex items-center gap-1">
+              <MapPin size={10} />
+              {event.location}
+            </p>
+          </div>
+          <time className="text-xs text-[#94A3B8] flex-shrink-0 flex items-center gap-1">
+            <Clock size={10} />
+            {event.time}
+          </time>
+        </div>
+        {event.detail && (
+          <p className="mt-1.5 text-xs text-[#94A3B8] bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg px-3 py-2">
+            {event.detail}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Detail Row ───────────────────────────────────────────────────────────────
+function DetailRow({ icon: Icon, label, value }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-3 border-b border-[#F1F5F9] last:border-0">
+      <div className="flex items-center gap-2.5 text-sm text-[#64748B]">
+        <Icon size={14} className="flex-shrink-0 text-[#94A3B8]" />
+        {label}
+      </div>
+      <span className="text-sm font-semibold text-[#0F172A] text-right">{value}</span>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+export default function TrackingPage(props) {
+  const params = use(props.params);
+  const trackingId = params?.id || "";
+  const [copied, setCopied] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+
+  const [shipment, setShipment] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(Boolean(trackingId));
+  const [error, setError] = useState(trackingId ? null : "Tracking ID not provided.");
+
+  const loadShipment = useCallback(async () => {
+    if (!trackingId) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      let data = null;
+
+      // A throw from the first lookup must not skip the fallback lookup.
+      try {
+        data = await getShipment(trackingId);
+      } catch (e) {
+        console.warn("getShipment failed, trying tracking number", e);
+      }
+      if (!data) {
+        data = await getShipmentByTrackingNumber(trackingId);
+      }
+
+      if (!data) {
+        setShipment(null);
+        setEvents([]);
+        setError("Tracking ID not found.");
+        return;
+      }
+
+      setShipment(data);
+
+      // Load events here too so "Refresh status" refreshes the timeline.
+      try {
+        const eventData = await getShipmentEvents(data.id, { order: "desc" });
+        setEvents(Array.isArray(eventData) ? eventData : []);
+      } catch (err) {
+        console.error(err);
+        setEvents([]);
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Failed to load shipment.");
+    } finally {
+      setLoading(false);
+    }
+  }, [trackingId]);
+
+  useEffect(() => {
+    loadShipment();
+  }, [loadShipment]);
+
+  const timelineEvents = events.map((event, i) => ({
+    id: event.id ?? `${event.status}-${i}`,
+    status: event.status,
+    label: event.description || STATUS_CONFIG[event.status]?.label || event.status || "Update",
+    location: locationToText(event.location) || "Unknown location",
+    time: formatEventDate(event.timestamp),
+    detail: event.detail || event.notes || "",
+    icon: EVENT_ICON_BY_STATUS[event.status] ?? Package,
+  }));
+
+  const visibleEvents = showAll ? timelineEvents : timelineEvents.slice(0, 3);
+
+  const currentStatus = shipment?.currentStatus || "LABEL_CREATED";
+  const activeException =
+    currentStatus === "EXCEPTION"
+      ? timelineEvents.find((e) => e.status === "EXCEPTION")
+      : null;
+
+  // For EXCEPTION, show progress at the last real step reached.
+  const stepperStatus =
+    currentStatus === "EXCEPTION"
+      ? timelineEvents.find((e) => e.status !== "EXCEPTION" && e.status in STEP_INDEX)?.status ||
+        "LABEL_CREATED"
+      : currentStatus;
+  const currentIdx = STEP_INDEX[stepperStatus] ?? -1;
+
+  const originText =
+    shipment?.sender?.address?.city || shipment?.sender?.address?.country || "Unknown";
+  const destinationText =
+    shipment?.recipient?.address?.city || shipment?.recipient?.address?.country || "Unknown";
+  const serviceText = shipment?.pricing?.serviceCode || "Standard";
+  const etaText =
+    shipment?.pricing?.etaDays != null
+      ? `In ${shipment.pricing.etaDays} days`
+      : shipment?.pricing?.etaDate || "TBD";
+  const carrierText = shipment?.carrier || "Yellowduck Logistics";
+  const progressValue =
+    shipment?.progress != null ? shipment.progress : getProgressPercent(currentStatus);
+  const weightText = shipment?.package?.weightKg ? `${shipment.package.weightKg} kg` : "TBD";
+  const currentLocText =
+    locationToText(shipment?.currentLocation) || timelineEvents[0]?.location || originText;
+  const originCoords = resolveCoords(shipment?.sender?.address) || getCityCoords(originText);
+  const destCoords = resolveCoords(shipment?.recipient?.address) || getCityCoords(destinationText);
+  const currentCoords =
+    resolveCoords(shipment?.currentLocation) ||
+    resolveCoords(timelineEvents[0]?.location) ||
+    originCoords;
+  const dimensionsText = shipment?.package?.dimensions
+    ? `${shipment.package.dimensions.lengthCm} × ${shipment.package.dimensions.widthCm} × ${shipment.package.dimensions.heightCm} cm`
+    : "TBD";
+  const declaredValueText = shipment?.customs?.declaredValueUSD
+    ? `$${shipment.customs.declaredValueUSD}`
+    : "TBD";
+  const insuranceText = shipment?.pricing?.addInsurance ? "Included" : "Not included";
+  const senderText = shipment?.sender?.name
+    ? `${shipment.sender.name} · ${[shipment.sender.address?.city, shipment.sender.address?.country]
+        .filter(Boolean)
+        .join(", ")}`
+    : "Unknown";
+  const recipientText = shipment?.recipient?.name
+    ? `${shipment.recipient.name} · ${[shipment.recipient.address?.city, shipment.recipient.address?.country]
+        .filter(Boolean)
+        .join(", ")}`
+    : "Unknown";
+
+  // Was hard-coded "Flight YD4421 · In air" for every shipment.
+  const statusLabel = STATUS_CONFIG[currentStatus]?.label || "Pending";
+  const carrierSubtext = shipment?.flightNumber
+    ? `Flight ${shipment.flightNumber} · ${statusLabel}`
+    : statusLabel;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(shipment?.trackingNumber || trackingId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Copy failed", err);
+    }
+  };
+
+  // Full-screen loading only on first load; refreshes keep the page visible.
+  if (loading && !shipment) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC]">
+        <Navbar />
+        <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-16">
+          <div className="bg-white rounded-2xl border border-[#E2E8F0] p-8 shadow-sm text-center">
+            <p className="text-sm text-[#64748B]">Loading shipment details…</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (error && !shipment) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC]">
+        <Navbar />
+        <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-16">
+          <div className="bg-white rounded-2xl border border-red-200 p-8 shadow-sm text-center">
+            <p className="text-sm font-semibold text-red-700 mb-4">{error}</p>
+            <Link
+              href="/"
+              className="inline-flex items-center justify-center rounded-full bg-[#FFB800] px-4 py-2 text-sm font-semibold text-[#0F172A] hover:bg-[#F0AE00] transition-colors"
+            >
+              Back to home
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#F8FAFC]">
+      <Navbar />
+
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-16">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 text-sm text-[#64748B] hover:text-[#0F172A] transition-colors mb-6"
+        >
+          <ArrowLeft size={15} />
+          Back to home
+        </Link>
+
+        {/* Shipment Header Card */}
+        <div className="bg-white rounded-2xl border border-[#E2E8F0] p-6 sm:p-8 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0F172A] tracking-tight">
+                  {shipment?.trackingNumber || shipment?.id || trackingId}
+                </h1>
+                <button
+                  onClick={handleCopy}
+                  className="p-1.5 rounded-lg text-[#94A3B8] hover:text-[#64748B] hover:bg-[#F1F5F9] transition-colors"
+                  title="Copy tracking number"
+                >
+                  <Copy size={14} />
+                </button>
+                {copied && <span className="text-xs text-green-600 font-medium">Copied!</span>}
+              </div>
+
+              <div className="flex items-center gap-2 text-sm text-[#64748B]">
+                <span className="font-medium text-[#334155]">{originText}</span>
+                <span className="text-[#CBD5E1]">→</span>
+                <span className="font-medium text-[#334155]">{destinationText}</span>
+                <span className="hidden sm:inline text-[#CBD5E1]">·</span>
+                <span className="hidden sm:inline">{serviceText}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col items-start sm:items-end gap-2">
+              <StatusBadge status={currentStatus} pulse={currentStatus === "IN_TRANSIT"} />
+              <button
+                type="button"
+                onClick={loadShipment}
+                disabled={loading}
+                className="inline-flex items-center gap-1.5 text-xs text-[#94A3B8] hover:text-[#64748B] transition-colors disabled:opacity-50"
+              >
+                <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
+                Refresh status
+              </button>
+              {error && <span className="text-xs text-red-600">{error}</span>}
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-col sm:flex-row gap-4">
+            <div className="flex-1 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-5 py-4">
+              <p className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wide mb-1">
+                Estimated Delivery
+              </p>
+              <p className="text-xl font-extrabold text-[#0F172A]">{etaText}</p>
+              <p className="text-sm text-[#64748B] mt-0.5">{destinationText}</p>
+            </div>
+            <div className="flex-1 bg-[#FFF8E6] border border-[#FFB800]/30 rounded-xl px-5 py-4">
+              <p className="text-xs font-semibold text-[#92670A] uppercase tracking-wide mb-1">
+                Carrier
+              </p>
+              <p className="text-sm font-bold text-[#0F172A]">{carrierText}</p>
+              <p className="text-sm text-[#64748B] mt-0.5">{carrierSubtext}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress Stepper */}
+        <div className="mt-6 bg-white rounded-2xl border border-[#E2E8F0] p-6 sm:p-8 shadow-sm">
+          <h2 className="text-sm font-semibold text-[#334155] mb-6">Shipment Progress</h2>
+          <ProgressStepper currentIdx={currentIdx} />
+
+          <div className="mt-6 bg-[#F1F5F9] rounded-full h-1.5 overflow-hidden">
+            <div
+              className="h-full bg-[#FFB800] rounded-full transition-all duration-700"
+              style={{ width: `${Math.min(100, Math.max(0, progressValue))}%` }}
+            />
+          </div>
+          <div className="flex justify-between mt-1">
+            <span className="text-[11px] text-[#94A3B8]">{originText}</span>
+            <span className="text-[11px] text-[#94A3B8]">{destinationText}</span>
+          </div>
+        </div>
+
+        {/* Main Content Grid */}
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            {activeException && (
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertTriangle size={16} className="text-red-600" />
+                  <h3 className="text-sm font-semibold text-red-700">Active Exception</h3>
+                </div>
+                <p className="text-sm text-red-600">{activeException.label}</p>
+              </div>
+            )}
+
+            {/* Map */}
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] overflow-hidden shadow-sm">
+              {originCoords && destCoords ? (
+                <LeafletMap
+                  origin={originCoords}
+                  destination={destCoords}
+                  current={currentCoords}
+                  originLabel={originText}
+                  destinationLabel={destinationText}
+                  currentLabel={currentLocText}
+                  status={shipment?.currentStatus}
+                />
+              ) : (
+                <div
+                  className="relative h-48 sm:h-56 bg-gradient-to-br from-[#EBF4FF] to-[#F0F7FF] flex items-center justify-center"
+                  style={{
+                    backgroundImage: `
+                      radial-gradient(circle at 25% 50%, rgba(255,184,0,0.12) 0%, transparent 40%),
+                      radial-gradient(circle at 75% 50%, rgba(59,130,246,0.08) 0%, transparent 40%)
+                    `,
+                  }}
+                >
+                  <svg
+                    className="absolute inset-0 w-full h-full"
+                    viewBox="0 0 600 220"
+                    fill="none"
+                    preserveAspectRatio="none"
+                  >
+                    <path
+                      d="M 80 140 Q 200 30 520 100"
+                      stroke="#FFB800"
+                      strokeWidth="2"
+                      strokeDasharray="6 4"
+                      fill="none"
+                      opacity="0.6"
+                    />
+                    <circle cx="80" cy="140" r="6" fill="#FFB800" />
+                    <circle cx="80" cy="140" r="10" fill="#FFB800" fillOpacity="0.2" />
+                    <circle cx="310" cy="68" r="8" fill="#0F172A" />
+                    <circle cx="310" cy="68" r="14" fill="#0F172A" fillOpacity="0.15" />
+                    <circle cx="520" cy="100" r="6" fill="#64748B" opacity="0.4" />
+                  </svg>
+
+                  <div className="absolute left-8 bottom-8 text-xs font-semibold text-[#0F172A]">
+                    {originText}
+                  </div>
+                  <div className="absolute right-8 bottom-10 text-xs font-semibold text-[#94A3B8]">
+                    {destinationText}
+                  </div>
+                  <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-[#0F172A]/80 text-white px-3 py-1.5 rounded-full text-xs font-medium backdrop-blur-sm">
+                    <Plane size={12} className="text-[#FFB800]" />
+                    {carrierText} · {statusLabel}
+                  </div>
+
+                  <div className="absolute bottom-4 right-4 text-[10px] text-[#94A3B8] bg-white/70 border border-[#E2E8F0] px-2 py-1 rounded-full">
+                    Map data unavailable
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Timeline */}
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] p-6 sm:p-8 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-sm font-semibold text-[#334155]">Live Timeline</h2>
+                <span className="inline-flex items-center gap-1.5 text-xs text-[#64748B]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                  Live updates
+                </span>
+              </div>
+
+              {timelineEvents.length === 0 ? (
+                <p className="text-sm text-[#94A3B8]">No tracking events yet.</p>
+              ) : (
+                <div>
+                  {visibleEvents.map((event, i) => (
+                    <TimelineItem
+                      key={event.id}
+                      event={event}
+                      isFirst={i === 0}
+                      isLast={i === visibleEvents.length - 1}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {timelineEvents.length > 3 && (
+                <button
+                  onClick={() => setShowAll((v) => !v)}
+                  className="w-full mt-2 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium text-[#64748B] hover:text-[#0F172A] border border-[#E2E8F0] rounded-xl hover:bg-[#F8FAFC] transition-colors"
+                >
+                  {showAll ? (
+                    <>
+                      <ChevronUp size={13} /> Show less
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown size={13} /> Show {timelineEvents.length - 3} earlier events
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Details */}
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] p-6 shadow-sm">
+              <h3 className="text-sm font-semibold text-[#334155] mb-1">Package Details</h3>
+              <div className="mt-3">
+                <DetailRow icon={Weight} label="Weight" value={weightText} />
+                <DetailRow icon={Box} label="Dimensions" value={dimensionsText} />
+                <DetailRow icon={Flag} label="Declared Value" value={declaredValueText} />
+                <DetailRow icon={Shield} label="Insurance" value={insuranceText} />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] p-6 shadow-sm">
+              <h3 className="text-sm font-semibold text-[#334155] mb-3">Route</h3>
+              <div>
+                <DetailRow icon={User} label="Sender" value={senderText} />
+                <DetailRow icon={MapPin} label="Recipient" value={recipientText} />
+                <DetailRow icon={Truck} label="Service" value={serviceText} />
+                <DetailRow icon={Calendar} label="ETA" value={etaText} />
+              </div>
+            </div>
+
+            <div className="bg-[#0F172A] rounded-2xl p-6 space-y-3">
+              <h3 className="text-sm font-semibold text-white">Need help?</h3>
+              <p className="text-xs text-[#94A3B8] leading-relaxed">
+                Our support team monitors all active international shipments 24/7.
+              </p>
+              <a
+                href="mailto:megagloballogisticsservices@gmail.com"
+                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-[#FFB800] text-[#0F172A] text-xs font-bold hover:bg-[#F0AE00] transition-colors"
+              >
+                Contact Support
+                <ExternalLink size={11} />
+              </a>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
